@@ -8,7 +8,8 @@ class Area:
         self.guard_start_dir = guard_dir
         self.guard_positions = set()
         self.guard_positions.add(guard_pos)
-        self.loop_way = []
+        self.seen_states = set() # consisting of tuples (pos, direction)
+        self.loop_flag = False
 
     # add obstacles to the field
     def add_obstacle(self, x, y):
@@ -16,85 +17,63 @@ class Area:
 
     # check if agent is outside the field
     def check_out_field(self, pos):
-        if pos[0] < 0 or pos[1] < 0 or pos[0] >= self.width or pos[1] >= self.height:
-            return True
-        return False
+        return not (0 <= pos[0] < self.width and 0 <= pos[1] < self.height)
 
     # check if a collision with an obstacle occurred
     def check_collision(self, pos):
-        for obs in self.obstacles:
-            if obs[0] == pos[0] and obs[1] == pos[1]:
-                return True
-        return False
+        return pos in self.obstacles
 
     # Make a step and check if collision or out of box occurs
     def update_step(self):
-        new_pos = self.guard.make_move()
-        if self.check_out_field(new_pos):
+        while True:
+            new_pos = self.guard.make_move()
+            if self.check_out_field(new_pos):
+                return True
+            if self.check_collision(new_pos):
+                self.guard.register_collision()
+            else:
+                break
+        current_state = (new_pos, self.guard.direction)
+        if current_state in self.seen_states:
+            self.loop_flag = True
             return True
-        if self.check_collision(new_pos):
-            self.guard.register_collision()
-            return self.update_step()
-        if new_pos in self.guard_positions:
-            self.loop_way.append(new_pos)
-        else:
-            self.loop_way = [] # reset loop way
-            self.guard_positions.add(new_pos)
+        self.seen_states.add((new_pos, self.guard.direction))
+        self.guard_positions.add(new_pos)
         return False
+
+    # Reset the object state for a fresh simulation
+    def reset_area_state(self):
+        self.guard.reset_position(self.guard_start_pos, self.guard_start_dir)
+        self.guard_positions = set()
+        self.seen_states = set()
+        self.loop_flag = False
 
     # Run default simulation of the guard walking around until she walks out of the area
     def run_simulation(self):
         while not self.update_step():
-            if self.check_loop():
-                return None
+            pass
+        if self.loop_flag:
+            return None
         return len(self.guard_positions)
 
     # Check if loop occurs when an additional object was in the default path of the guard
     def run_loop_simulation(self):
         counter_loops = 0
         counter_pos = 0
-        for g_pos in self.guard_positions:
+        original_guard_positions = self.guard_positions.copy()
+        for g_pos in original_guard_positions:
             counter_pos += 1
             if g_pos == self.guard_start_pos:
                 continue
 
-            # Create temporary Area object with additional object and run simulation on it to check for loopx
-            tmp_area = Area(self.height, self.width, self.guard_start_pos, self.guard_start_dir)
-            for obs in self.obstacles:
-                tmp_area.add_obstacle(obs[0], obs[1])
-            tmp_area.add_obstacle(g_pos[0], g_pos[1])
-            if tmp_area.run_simulation() is None:
+            # Modify itself with additional object and run simulation to check for loops
+            self.reset_area_state()
+            self.obstacles.add((g_pos[0], g_pos[1]))
+            if self.run_simulation() is None:
                 counter_loops += 1
+            self.obstacles.remove((g_pos[0], g_pos[1]))
             print(counter_pos, counter_loops)
         return counter_loops
-
-    # Check if a loop occurred
-    def check_loop(self):
-        if len(self.loop_way) < 2:
-            return False
-
-        seen_pairs = set()
-        for i in range(len(self.loop_way) - 1):
-            current_pair = (self.loop_way[i], self.loop_way[i + 1])
-            if current_pair in seen_pairs:
-                return True
-            seen_pairs.add(current_pair)
-        return False
-
-    # Resets object after checking for loops
-    def reset_area_object(self):
-        self.guard_positions = set()
-        self.guard_positions.add(self.guard_start_pos)
-        self.guard = Guard(self.guard_start_pos, self.guard_start_dir)
-
-    # Check if there is already an object on that position
-    def check_for_object(self, x, y):
-        if self.guard_start_pos == (x, y):
-            return True
-        for obs in self.obstacles:
-            if obs == (x, y):
-                return True
-        return False
 
 class Guard:
     def __init__(self, pos, direction):
@@ -119,6 +98,10 @@ class Guard:
             self.direction = (-1,0)
         elif self.direction == (-1,0):
             self.direction = (0,-1)
+
+    def reset_position(self, new_pos, new_dir):
+        self.pos = new_pos
+        self.direction = new_dir
 
 # Processing input and creation of area object
 def process_input():
